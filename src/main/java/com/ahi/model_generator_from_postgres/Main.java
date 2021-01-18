@@ -3,10 +3,13 @@ package com.ahi.model_generator_from_postgres;
 import com.google.common.base.CaseFormat;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.Optional;
-import java.util.Scanner;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -15,21 +18,21 @@ public class Main {
     private static final Pattern createTablePattern = Pattern.compile("CREATE TABLE (public.)?(\\w+)");
     private static final Pattern columnPattern = Pattern.compile("(\\w+)\\s(\\w+).*,");
     private static String sqlFilePath;
-    private static String jpaEntityDirectoryPath;
-    private static String javaDtoDirectoryPath;
-    private static String mapStructDirectoryPath;
-    private static String typeScriptDirectoryPath;
+    private static Properties properties = new Properties();
 
     public static void main(String[] args) {
         if (args.length < 5) {
-            System.out.println("Parameters needed:");
-            System.out.println("<SQL file path> <JPA Entity directory path> <Java DTO directory path> <MapStruct directory path> <TypeScript DTO directory path>");
+            System.out.println("Parameter needed:");
+            System.out.println("<SQL file path>");
         }
         sqlFilePath = args[0];
-        jpaEntityDirectoryPath = args[1];
-        javaDtoDirectoryPath = args[2];
-        mapStructDirectoryPath = args[3];
-        typeScriptDirectoryPath = args[4];
+        String rootPath = Thread.currentThread().getContextClassLoader().getResource("").getPath();
+        String configPath = rootPath + "config.properties";
+        try {
+            properties.load(new FileInputStream(configPath));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         generate();
     }
 
@@ -49,8 +52,15 @@ public class Main {
                     if (currentClassModel != null) { // Write the previous table's classes
                         createJpaEntityClass(currentClassModel);
                         createJavaDtoClass(currentClassModel);
+                        createJpaRepositoryInterface(currentClassModel);
                         createMapStructMapperInterface(currentClassModel);
+                        createSpringServiceClass(currentClassModel);
+                        createRestControllerClass(currentClassModel);
                         createTypeScriptClass(currentClassModel);
+                        createAngularServiceClass(currentClassModel);
+                        createNgRxAction(currentClassModel);
+                        createNgRxStateMemberHandlerAndSelect(currentClassModel);
+                        createNgRxEffect(currentClassModel);
                     }
                     String tableName = createTableMatcher.group(2);
                     String dtoClassName = CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, tableName);
@@ -129,91 +139,9 @@ public class Main {
         currentClassModel.addProperty(modelProperty);
     }
 
-    private static void createTypeScriptClass(ClassModel currentClassModel) {
-        String tsFileName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_HYPHEN, currentClassModel.getUpperCamelCaseName());
-        try (FileWriter fileWriter = new FileWriter(typeScriptDirectoryPath
-                + "\\" + tsFileName + ".ts")) {
-
-            for (String importLine : currentClassModel.getJsImportLines()) {
-                fileWriter.write(importLine);
-                fileWriter.write(System.lineSeparator());
-            }
-            if (!currentClassModel.getJsImportLines().isEmpty()) {
-                fileWriter.write(System.lineSeparator());
-            }
-            String extendedDtoInterface = currentClassModel.getExtendedClass();
-
-            StringBuilder interfaceDeclarationBuilder = new StringBuilder("export interface ")
-                    .append(currentClassModel.getUpperCamelCaseName());
-            if (extendedDtoInterface != null) {
-                interfaceDeclarationBuilder.append(" extends ").append(extendedDtoInterface);
-            }
-            interfaceDeclarationBuilder.append(" {");
-            fileWriter.write(interfaceDeclarationBuilder.toString());
-            fileWriter.write(System.lineSeparator());
-            for (ModelProperty property : currentClassModel.getProperties()) {
-                fileWriter.write("    " + property.getLowerCamelCaseName() + "?: " + property.getJsType() + ";");
-                fileWriter.write(System.lineSeparator());
-            }
-            fileWriter.write("}");
-        }
-        catch (IOException e) {
-            System.out.println("An error occurred.");
-            e.printStackTrace();
-        }
-    }
-
-    private static void createJavaDtoClass(ClassModel currentClassModel) {
-        try (FileWriter fileWriter = new FileWriter(javaDtoDirectoryPath
-                + "\\" + currentClassModel.getUpperCamelCaseName() + ".java")) {
-
-            fileWriter.write("package com.ahi.prop_man.rest.dto;");
-            fileWriter.write(System.lineSeparator());
-            fileWriter.write(System.lineSeparator());
-            for (String importLine : currentClassModel.getJavaImportLines()) {
-                fileWriter.write(importLine);
-                fileWriter.write(System.lineSeparator());
-            }
-            if (!currentClassModel.getJavaImportLines().isEmpty()) {
-                fileWriter.write(System.lineSeparator());
-            }
-            String extendedEntityClass = currentClassModel.getExtendedClass();
-
-            StringBuilder classDeclarationBuilder = new StringBuilder("public class ")
-                    .append(currentClassModel.getUpperCamelCaseName());
-            if (extendedEntityClass != null) {
-                String extendedDtoClass = extendedEntityClass.replaceAll("Entity", "Dto");
-                classDeclarationBuilder.append(" extends ")
-                        .append(extendedDtoClass);
-                currentClassModel.setExtendedClass(extendedDtoClass);
-                // Here for simplicity we add JS import line for the extended class. (e.g. import { BaseDto } from './base-dto';)
-                String extendedJsFileName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_HYPHEN, extendedDtoClass);
-                currentClassModel.addJsImportLine("import { " + extendedDtoClass + " } from './" + extendedJsFileName + "';");
-            }
-            classDeclarationBuilder.append(" {");
-            fileWriter.write(classDeclarationBuilder.toString());
-            fileWriter.write(System.lineSeparator());
-            fileWriter.write(System.lineSeparator());
-            for (ModelProperty property : currentClassModel.getProperties()) {
-                fileWriter.write("    private " + property.getJavaDtoType() + " " + property.getLowerCamelCaseName() + ";");
-                fileWriter.write(System.lineSeparator());
-                fileWriter.write(System.lineSeparator());
-            }
-            for (ModelProperty property : currentClassModel.getProperties()) {
-                writeGetterMethod(fileWriter, property, false);
-                writeSetterMethod(fileWriter, property, false);
-            }
-            fileWriter.write("}");
-        }
-        catch (IOException e) {
-            System.out.println("An error occurred.");
-            e.printStackTrace();
-        }
-    }
-
     private static void createJpaEntityClass(ClassModel currentClassModel) {
-        try (FileWriter fileWriter = new FileWriter(jpaEntityDirectoryPath
-                + "\\" + currentClassModel.getUpperCamelCaseName() + "Entity.java")) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\entity\\" + currentClassModel.getUpperCamelCaseName() + "Entity.java")) {
 
             fileWriter.write("package com.ahi.prop_man.entity;");
             fileWriter.write(System.lineSeparator());
@@ -285,9 +213,97 @@ public class Main {
         }
     }
 
+    private static void createJavaDtoClass(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\rest\\dto\\" + currentClassModel.getUpperCamelCaseName() + ".java")) {
+
+            fileWriter.write("package com.ahi.prop_man.rest.dto;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            for (String importLine : currentClassModel.getJavaImportLines()) {
+                fileWriter.write(importLine);
+                fileWriter.write(System.lineSeparator());
+            }
+            if (!currentClassModel.getJavaImportLines().isEmpty()) {
+                fileWriter.write(System.lineSeparator());
+            }
+            String extendedEntityClass = currentClassModel.getExtendedClass();
+
+            StringBuilder classDeclarationBuilder = new StringBuilder("public class ")
+                    .append(currentClassModel.getUpperCamelCaseName());
+            if (extendedEntityClass != null) {
+                String extendedDtoClass = extendedEntityClass.replaceAll("Entity", "Dto");
+                classDeclarationBuilder.append(" extends ")
+                        .append(extendedDtoClass);
+                currentClassModel.setExtendedClass(extendedDtoClass);
+                // Here for simplicity we add JS import line for the extended class. (e.g. import { BaseDto } from './base-dto';)
+                String extendedJsFileName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_HYPHEN, extendedDtoClass);
+                currentClassModel.addJsImportLine("import { " + extendedDtoClass + " } from './" + extendedJsFileName + "';");
+            }
+            classDeclarationBuilder.append(" {");
+            fileWriter.write(classDeclarationBuilder.toString());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            for (ModelProperty property : currentClassModel.getProperties()) {
+                fileWriter.write("    private " + property.getJavaDtoType() + " " + property.getLowerCamelCaseName() + ";");
+                fileWriter.write(System.lineSeparator());
+            }
+            fileWriter.write(System.lineSeparator());
+            for (ModelProperty property : currentClassModel.getProperties()) {
+                writeGetterMethod(fileWriter, property, false);
+                writeSetterMethod(fileWriter, property, false);
+            }
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
+    private static void createJpaRepositoryInterface(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\repository\\" + currentClassModel.getUpperCamelCaseName() + "Repository.java")) {
+
+            fileWriter.write("package com.ahi.prop_man.repository;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.entity." + currentClassModel.getUpperCamelCaseName() + "Entity;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.data.jpa.repository.JpaRepository;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import java.util.List;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            String primaryKeyType;
+            if (currentClassModel.getExtendedClass() == null) { // If it does not have an int Id PK field, then the first property should be the PK.
+                primaryKeyType = currentClassModel.getProperties().get(0).getJavaEntityType();
+            }
+            else {
+                primaryKeyType = "Integer";
+            }
+            fileWriter.write("public interface "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Repository extends JpaRepository<"
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Entity, "
+                    + primaryKeyType
+                    + "> {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    List<" + currentClassModel.getUpperCamelCaseName() + "Entity> findAll();");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
     private static void createMapStructMapperInterface(ClassModel currentClassModel) {
-        try (FileWriter fileWriter = new FileWriter(mapStructDirectoryPath
-                + "\\" + currentClassModel.getUpperCamelCaseName() + "Mapper.java")) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\mapper\\" + currentClassModel.getUpperCamelCaseName() + "Mapper.java")) {
 
             fileWriter.write("package com.ahi.prop_man.mapper;");
             fileWriter.write(System.lineSeparator());
@@ -327,6 +343,383 @@ public class Main {
             System.out.println("An error occurred.");
             e.printStackTrace();
         }
+    }
+
+    private static void createSpringServiceClass(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\rest\\service\\" + currentClassModel.getUpperCamelCaseName() + "Service.java")) {
+
+            fileWriter.write("package com.ahi.prop_man.rest.service;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.entity." + currentClassModel.getUpperCamelCaseName() + "Entity;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.mapper." + currentClassModel.getUpperCamelCaseName() + "Mapper;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.repository." + currentClassModel.getUpperCamelCaseName() + "Repository;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.rest.dto." + currentClassModel.getUpperCamelCaseName() + ";");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.beans.factory.annotation.Autowired;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.stereotype.Service;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import java.util.List;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("@Service");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("public class "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Service {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    @Autowired");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    private "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Mapper "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Mapper;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    @Autowired");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    private "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Repository "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Repository;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    public List<" + currentClassModel.getUpperCamelCaseName() + "> getAll() {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("        List<"
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Entity> entities = "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Repository.findAll();");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("        return "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Mapper.entityToDto(entities);");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    }");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
+    private static void createRestControllerClass(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("backendRootPath")
+                + "\\rest\\controller\\" + currentClassModel.getUpperCamelCaseName() + "Controller.java")) {
+
+            fileWriter.write("package com.ahi.prop_man.rest.controller;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.rest.dto." + currentClassModel.getUpperCamelCaseName() + ";");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import com.ahi.prop_man.rest.service." + currentClassModel.getUpperCamelCaseName() + "Service;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.beans.factory.annotation.Autowired;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.web.bind.annotation.GetMapping;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.web.bind.annotation.RequestMapping;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import org.springframework.web.bind.annotation.RestController;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import java.util.List;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("@RestController");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("@RequestMapping(\"/api/"
+                    + currentClassModel.getLowerHyphenName()
+                    + "s\")");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("public class "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Controller {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    @Autowired");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    private "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Service "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Service;");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    @GetMapping");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    public List<"
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "> getAll() {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("        return "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Service.getAll();");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    }");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
+    private static void createTypeScriptClass(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("frontendRootPath")
+                + "\\models\\" + currentClassModel.getLowerHyphenName() + ".ts")) {
+
+            for (String importLine : currentClassModel.getJsImportLines()) {
+                fileWriter.write(importLine);
+                fileWriter.write(System.lineSeparator());
+            }
+            if (!currentClassModel.getJsImportLines().isEmpty()) {
+                fileWriter.write(System.lineSeparator());
+            }
+            String extendedDtoInterface = currentClassModel.getExtendedClass();
+
+            StringBuilder interfaceDeclarationBuilder = new StringBuilder("export interface ")
+                    .append(currentClassModel.getUpperCamelCaseName());
+            if (extendedDtoInterface != null) {
+                interfaceDeclarationBuilder.append(" extends ").append(extendedDtoInterface);
+            }
+            interfaceDeclarationBuilder.append(" {");
+            fileWriter.write(interfaceDeclarationBuilder.toString());
+            fileWriter.write(System.lineSeparator());
+            for (ModelProperty property : currentClassModel.getProperties()) {
+                fileWriter.write("    " + property.getLowerCamelCaseName() + "?: " + property.getJsType() + ";");
+                fileWriter.write(System.lineSeparator());
+            }
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
+    private static void createAngularServiceClass(ClassModel currentClassModel) {
+        try (FileWriter fileWriter = new FileWriter(properties.getProperty("frontendRootPath")
+                + "\\services\\" + currentClassModel.getLowerHyphenName() + ".service.ts")) {
+
+            fileWriter.write("import { HttpClient } from '@angular/common/http';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import { Injectable } from '@angular/core';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import { Observable } from 'rxjs';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("import { " + currentClassModel.getUpperCamelCaseName() + " } from '../models/" + currentClassModel.getLowerHyphenName() + "';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("@Injectable({");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("  providedIn: 'root'");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("})");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("export class " + currentClassModel.getUpperCamelCaseName() + "Service {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("  private readonly baseUrl: string = 'api/" + currentClassModel.getLowerHyphenName() + "s';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("  constructor(private http: HttpClient) { }");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("  getAll(): Observable<" + currentClassModel.getUpperCamelCaseName() + "[]> {");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("    return this.http.get<" + currentClassModel.getUpperCamelCaseName() + "[]>(this.baseUrl);");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("  }");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write("}");
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred.");
+            e.printStackTrace();
+        }
+    }
+
+    private static void createNgRxAction(ClassModel currentClassModel) {
+        Path filePath = Path.of("C:\\Work\\prop-man\\prop-man-fe\\src\\app\\modules\\room-rack\\store\\room-rack.action.ts");
+        try {
+            List<String> fileContent = new ArrayList<>(Files.readAllLines(filePath, StandardCharsets.UTF_8));
+            fileContent.add(0, "import { "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + " } from 'src/app/models/"
+                    + currentClassModel.getLowerHyphenName()
+                    + "';");
+            fileContent.add("");
+            fileContent.add("export const load"
+                    + currentClassModel.getUpperCamelCaseNameInPlural()
+                    + " = createAction('[Room Rack] Load "
+                    + currentClassModel.getUpperCamelCaseNameInPlural()
+                    + "');");
+            fileContent.add("");
+            fileContent.add("export const "
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + "LoadedSuccess = createAction(");
+            fileContent.add("");
+            fileContent.add("    '[Room Rack] "
+                    + currentClassModel.getUpperCamelCaseNameInPlural()
+                    + " Loaded Success',");
+            fileContent.add("    props<{"
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + ": "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "[]}>()");
+            fileContent.add(");");
+            Files.write(filePath, fileContent, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void createNgRxStateMemberHandlerAndSelect(ClassModel currentClassModel) {
+        Path filePath = Path.of("C:\\Work\\prop-man\\prop-man-fe\\src\\app\\modules\\room-rack\\store\\room-rack.reducer.ts");
+        try {
+            List<String> fileContent = new ArrayList<>(Files.readAllLines(filePath, StandardCharsets.UTF_8));
+            fileContent.add(0, "import { "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + " } from 'src/app/models/"
+                    + currentClassModel.getLowerHyphenName()
+                    + "';");
+            int startIndexOfStateInterface = fileContent.indexOf("export interface State {") + 1;
+            fileContent.add(startIndexOfStateInterface, "    "
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + ": "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "[];");
+            int startIndexOfStateInitialization = fileContent.indexOf("export const initialState: State = {") + 1;
+            fileContent.add(startIndexOfStateInitialization, "    "
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + ": [],");
+            int startIndexOfReducerHandler = fileContent.indexOf("    initialState,") + 1;
+            fileContent.add(startIndexOfReducerHandler++, "    on(RoomRackActions."
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + "LoadedSuccess, (state, {"
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + "}) => ({");
+            fileContent.add(startIndexOfReducerHandler++, "        ...state,");
+            fileContent.add(startIndexOfReducerHandler++, "        "
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + ": "
+                    + currentClassModel.getLowerCamelCaseNameInPlural());
+            fileContent.add(startIndexOfReducerHandler, "    })),");
+            fileContent.add("export const select"
+                    + currentClassModel.getUpperCamelCaseNameInPlural()
+                    + " =");
+            fileContent.add("    (state: AppState) => state.roomRack."
+                    + currentClassModel.getLowerCamelCaseNameInPlural()
+                    + ";");
+            Files.write(filePath, fileContent, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void createNgRxEffect(ClassModel currentClassModel) {
+        Path filePath = Path.of("C:\\Work\\prop-man\\prop-man-fe\\src\\app\\modules\\room-rack\\store\\room-rack.effects.ts");
+        try {
+            List<String> fileContent = new ArrayList<>(Files.readAllLines(filePath, StandardCharsets.UTF_8));
+            fileContent.add(0, "import { "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Service } from 'src/app/services/"
+                    + currentClassModel.getLowerHyphenName()
+                    + ".service';");
+            int indexOfLastLineOfConstructor = fileContent.indexOf("  ) {}");
+            fileContent.add(indexOfLastLineOfConstructor - 2, "    private "
+                    + currentClassModel.getLowerCamelCaseName()
+                    + "Service: "
+                    + currentClassModel.getUpperCamelCaseName()
+                    + "Service,");
+            if (currentClassModel.getExtendedClass() != null && currentClassModel.getExtendedClass().equals("BaseEnumDto")) {
+                createNgRxEffectForEnum(fileContent, indexOfLastLineOfConstructor + 2, currentClassModel);
+            }
+            else {
+                createNgRxEffectForNonEnum(fileContent, indexOfLastLineOfConstructor + 2, currentClassModel);
+            }
+            Files.write(filePath, fileContent, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void createNgRxEffectForEnum(List<String> lines, int startIndex, ClassModel currentClassModel) {
+
+        lines.add(startIndex++, "");
+        lines.add(startIndex++, "  load"
+                + currentClassModel.getUpperCamelCaseNameInPlural()
+                + "$ = createEffect(() => this.actions$.pipe(");
+        lines.add(startIndex++, "    ofType(RoomRackActions.load"
+                + currentClassModel.getUpperCamelCaseNameInPlural()
+                + "),");
+        lines.add(startIndex++, "    concatMap(action => of(action).pipe(");
+        lines.add(startIndex++, "      withLatestFrom(this.store.pipe(select(fromRoomRack.select"
+                + currentClassModel.getUpperCamelCaseNameInPlural()
+                + ")))");
+        lines.add(startIndex++, "    )),");
+        lines.add(startIndex++, "    switchMap(([action, "
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "]) =>");
+        lines.add(startIndex++, "      (!"
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + " || "
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + ".length === 0");
+        lines.add(startIndex++, "        ? this."
+                + currentClassModel.getLowerCamelCaseName()
+                + "Service.getAll()");
+        lines.add(startIndex++, "        : of("
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "))");
+        lines.add(startIndex++, "      .pipe(");
+        lines.add(startIndex++, "        map("
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + " => (RoomRackActions."
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "LoadedSuccess({"
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "}))),");
+        lines.add(startIndex++, "        catchError(val => this.errorHandlingService.handleError(val))");
+        lines.add(startIndex++, "    ))");
+        lines.add(startIndex, "  ));");
+    }
+
+    private static void createNgRxEffectForNonEnum(List<String> lines, int startIndex, ClassModel currentClassModel) {
+
+        lines.add(startIndex++, "");
+        lines.add(startIndex++, "  load"
+                + currentClassModel.getUpperCamelCaseNameInPlural()
+                + "$ = createEffect(() => this.actions$.pipe(");
+        lines.add(startIndex++, "    ofType(RoomRackActions.load"
+                + currentClassModel.getUpperCamelCaseNameInPlural()
+                + "),");
+        lines.add(startIndex++, "    switchMap(() => this."
+                + currentClassModel.getLowerCamelCaseName()
+                + "Service.getAll()");
+        lines.add(startIndex++, "      .pipe(");
+        lines.add(startIndex++, "        map("
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + " => (RoomRackActions."
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "LoadedSuccess({"
+                + currentClassModel.getLowerCamelCaseNameInPlural()
+                + "}))),");
+        lines.add(startIndex++, "        catchError(val => this.errorHandlingService.handleError(val))");
+        lines.add(startIndex++, "    ))");
+        lines.add(startIndex, "  ));");
     }
 
     private static void writeGetterMethod(FileWriter fileWriter, ModelProperty property, boolean isEntityClass) throws IOException {
