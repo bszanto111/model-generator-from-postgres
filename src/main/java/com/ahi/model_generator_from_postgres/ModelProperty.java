@@ -15,6 +15,9 @@ public class ModelProperty {
         this.javaDtoType = javaDtoType;
         this.javaEntityType = javaEntityType;
         this.jsType = jsType;
+        if (javaEntityType.equals("Boolean") && lowerUnderscoreName.startsWith("is_")) {
+            upperCamelCaseName = upperCamelCaseName.substring(2);
+        }
         this.upperCamelCaseName = upperCamelCaseName;
     }
 
