@@ -49,7 +49,14 @@ public class Main {
                 Matcher createTableMatcher = createTablePattern.matcher(line);
                 if (!currentlyProcessingATable && createTableMatcher.find()) {
                     currentlyProcessingATable = true;
-                    if (currentClassModel != null) { // Write the previous table's classes
+                    String tableName = createTableMatcher.group(2);
+                    String dtoClassName = CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, tableName);
+                    currentClassModel = new ClassModel(dtoClassName, tableName);
+                }
+                else if (currentlyProcessingATable) {
+                    Matcher columnPatternMatcher = columnPattern.matcher(line);
+                    if (line.contains("CONSTRAINT")) {
+                        // Write the table's classes
                         createJpaEntityClass(currentClassModel);
                         createJavaDtoClass(currentClassModel);
                         createJpaRepositoryInterface(currentClassModel);
@@ -61,14 +68,7 @@ public class Main {
                         createNgRxAction(currentClassModel);
                         createNgRxStateMemberHandlerAndSelect(currentClassModel);
                         createNgRxEffect(currentClassModel);
-                    }
-                    String tableName = createTableMatcher.group(2);
-                    String dtoClassName = CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, tableName);
-                    currentClassModel = new ClassModel(dtoClassName, tableName);
-                }
-                else if (currentlyProcessingATable) {
-                    Matcher columnPatternMatcher = columnPattern.matcher(line);
-                    if (line.contains("CONSTRAINT")) { // Skip each remaining line of the table description after CONSTRAINT keyword is found.
+                        // Skip each remaining line of the table description after CONSTRAINT keyword is found.
                         currentlyProcessingATable = false;
                     }
                     else if (columnPatternMatcher.find()) {

@@ -24,7 +24,7 @@ public class ClassModel {
         if (upperCamelCaseName.endsWith("y")) {
             upperCamelCaseNameInPlural = upperCamelCaseName.substring(0, upperCamelCaseName.length() - 1) + "ies";
         }
-        else if (upperCamelCaseName.endsWith("s")) {
+        else if (upperCamelCaseName.endsWith("s") || upperCamelCaseName.endsWith("x")) {
             upperCamelCaseNameInPlural = upperCamelCaseName + "es";
         }
         else {
