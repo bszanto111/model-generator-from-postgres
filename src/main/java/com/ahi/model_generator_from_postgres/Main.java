@@ -522,6 +522,9 @@ public class Main {
             fileWriter.write("import { " + currentClassModel.getUpperCamelCaseName() + " } from '../models/" + currentClassModel.getLowerHyphenName() + "';");
             fileWriter.write(System.lineSeparator());
             fileWriter.write(System.lineSeparator());
+            fileWriter.write("import propManConfig from '../../config/prop-man-config';");
+            fileWriter.write(System.lineSeparator());
+            fileWriter.write(System.lineSeparator());
             fileWriter.write("@Injectable({");
             fileWriter.write(System.lineSeparator());
             fileWriter.write("  providedIn: 'root'");
@@ -531,7 +534,7 @@ public class Main {
             fileWriter.write("export class " + currentClassModel.getUpperCamelCaseName() + "Service {");
             fileWriter.write(System.lineSeparator());
             fileWriter.write(System.lineSeparator());
-            fileWriter.write("  private readonly baseUrl: string = 'api/" + currentClassModel.getLowerHyphenName() + "s';");
+            fileWriter.write("  private readonly baseUrl: string = propManConfig.serverDomain + '/api/" + currentClassModel.getLowerHyphenName() + "s';");
             fileWriter.write(System.lineSeparator());
             fileWriter.write(System.lineSeparator());
             fileWriter.write("  constructor(private http: HttpClient) { }");
